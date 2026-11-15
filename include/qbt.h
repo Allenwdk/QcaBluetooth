@@ -29,6 +29,10 @@ struct qbt_platform {
     int (*firmware_get)(void *, const char *, const uint8_t **, size_t *);
     void (*firmware_put)(void *, const uint8_t *, size_t);
     void (*log)(void *, int, const char *);
+    /* Optional discovery diagnostics on the executor. TX means the complete
+     * command reached uart_write, not that the controller acknowledged it.
+     * Bytes exclude the H4 type and remain valid only during this callback. */
+    void (*trace_hci)(void *, bool tx, uint8_t type, const uint8_t *, size_t);
 };
 enum qbt_discovery_command {
     QBT_INQUIRY,

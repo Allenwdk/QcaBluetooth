@@ -13,6 +13,7 @@ struct fixture {
     bool progress_acks, progress_loss, speed_reply; unsigned progress_sent; uint64_t progress_delay, speed_settle, speed_command_at;
     unsigned download_mode, failed_opcode; bool missing_replies, missing_wake, board_specific;
     bool nvm_edited, address_written, wake_armed, hardware_fault, clock_fault, wake_in_stop, uart_stopped;
+    unsigned trace_tx, trace_rx; uint8_t trace_type, trace_bytes[258]; size_t trace_length;
 };
 static void put16(uint8_t *p,unsigned v){p[0]=v;p[1]=v>>8;}
 static void put32(uint8_t *p,unsigned v){put16(p,v);put16(p+2,v>>16);}
@@ -227,6 +228,52 @@ static void discovery(void) {
     destroy(f);
     free(f);
 }
+static void hci_trace(void *context, bool tx, uint8_t type, const uint8_t *bytes, size_t length) {
+    struct fixture *f = context;
+    assert(length <= sizeof(f->trace_bytes));
+    if (tx) f->trace_tx++; else f->trace_rx++;
+    f->trace_type = type;
+    f->trace_length = length;
+    memcpy(f->trace_bytes, bytes, length);
+}
+static void discovery_trace(void) {
+    struct fixture *f = calloc(1, sizeof(*f));
+    make(f, 3); assert(!boot(f)); qbt_set_service(f->q, true);
+    f->q->ops.trace_hci = hci_trace;
+    const uint8_t inquiry[] = {1, 1, 4, 5, 0x33, 0x8b, 0x9e, 10, 0xff};
+    f->uart_stopped = true;
+    assert(!qbt_transmit(f->q, inquiry, sizeof(inquiry)));
+    drive(f, 3);
+    assert(!f->trace_tx);
+    f->uart_stopped = false; f->write_limit = 1;
+    drive(f, 100);
+    assert(f->trace_tx == 1);
+    const uint8_t status[] = {4, 0x0f, 4, 0, 1, 1, 4};
+    assert(qbt_receive(f->q, status, sizeof(status)) == sizeof(status));
+    assert(f->trace_type == 4 && f->trace_length == sizeof(status) - 1);
+    assert(!memcmp(f->trace_bytes, status + 1, sizeof(status) - 1));
+    uint8_t result[258] = {4, 0x2f, 255, 1};
+    for (unsigned i = 4; i < sizeof(result); ++i) result[i] = (uint8_t)i;
+    for (unsigned i = 0; i < sizeof(result); ++i)
+        assert(qbt_receive(f->q, result + i, 1) == 1);
+    assert(f->trace_length == 257 && !memcmp(f->trace_bytes, result + 1, 257));
+    const uint8_t complete_event[] = {4, 1, 1, 0};
+    assert(qbt_receive(f->q, complete_event, sizeof(complete_event)) == sizeof(complete_event));
+    assert(f->trace_length == 3 && !memcmp(f->trace_bytes, complete_event + 1, 3));
+    unsigned rx = f->trace_rx;
+    const uint8_t acl[] = {2, 1, 0, 3, 0, 1, 2, 3};
+    const uint8_t key[] = {4, 0x18, 23, 1, 2, 3, 4, 5, 6};
+    uint8_t notification[26] = {0}; memcpy(notification, key, sizeof(key));
+    assert(qbt_receive(f->q, notification, sizeof(notification)) == sizeof(notification));
+    assert(qbt_receive(f->q, acl, sizeof(acl)) == sizeof(acl));
+    assert(f->trace_rx == rx);
+    assert(!qbt_transmit(f->q, acl, sizeof(acl))); drive(f, 100);
+    assert(f->trace_tx == 1);
+    f->q->ops.trace_hci = NULL;
+    assert(qbt_receive(f->q, status, sizeof(status)) == sizeof(status));
+    assert(f->trace_rx == rx);
+    destroy(f); free(f);
+}
 static void sleep_and_wake(void){
     struct fixture *f=calloc(1,sizeof(*f));make(f,3);assert(!boot(f));qbt_set_service(f->q,true);drive(f,50);assert(!f->q->clock_on&&f->clock_off);
     uint8_t acl[205]={2,1,0,200,0};assert(!qbt_transmit(f->q,acl,sizeof(acl)));drive(f,80);assert(!f->q->tx_length&&!f->tx_count&&f->clock_on);
@@ -308,4 +355,4 @@ static void refused_write(void){
     qbt_get_stats(f->q,&stats);assert(stats.tx_refused==5);
     destroy(f);free(f);
 }
-int main(void){initialization();failures();progress_reports();speed_settle();receive_pressure();discovery();sleep_and_wake();lost_wake();clock_failure();tx_ibs_boundaries();wake_during_clock_stop();refused_write();puts("PASS: original Linux WCN7850 setup, firmware/BID fallback, NVM edits, H4 fragmentation/backpressure, status failure, true timeout, partial DMA TX, IBS packet boundaries, clock/wake recovery, terminal clock faults, wake during a clock stop and refused writes");}
+int main(void){initialization();failures();progress_reports();speed_settle();receive_pressure();discovery();discovery_trace();sleep_and_wake();lost_wake();clock_failure();tx_ibs_boundaries();wake_during_clock_stop();refused_write();puts("PASS: original Linux WCN7850 setup, firmware/BID fallback, NVM edits, H4 fragmentation/backpressure, status failure, true timeout, partial DMA TX, IBS packet boundaries, clock/wake recovery, terminal clock faults, wake during a clock stop, refused writes and bounded discovery trace callbacks");}
