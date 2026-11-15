@@ -26,6 +26,7 @@ struct qbt {
     struct qbt_stats stats;
     uint8_t tx[QBT_TX_CAPACITY];
     struct qbt_tx_frame tx_frame;
+    uint8_t trace_command[258]; unsigned trace_command_length;
     unsigned tx_head, tx_length;
     bool service, ibs, rx_awake, clock_on;
     unsigned tx_state, wake_attempts;

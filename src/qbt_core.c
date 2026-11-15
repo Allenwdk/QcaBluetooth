@@ -50,6 +50,49 @@ static int discovery_command(unsigned opcode)
     }
 }
 
+static bool trace_command(unsigned opcode)
+{
+    return discovery_command(opcode) >= 0 || opcode == 0x0402 ||
+        opcode == 0x0c01 || opcode == 0x0c03 || opcode == 0x0c45;
+}
+
+static void trace_event(struct qbt *q, const uint8_t *p, unsigned n)
+{
+    if (!q->ops.trace_hci || n < 2) return;
+    bool keep = p[0] == 0x01 || p[0] == 0x02 || p[0] == 0x07 ||
+        p[0] == 0x10 || p[0] == 0x22 || p[0] == 0x2f;
+    if (n >= 6 && (p[0] == 0x0e || p[0] == 0x0f)) {
+        unsigned at = p[0] == 0x0e ? 3 : 4;
+        keep = trace_command(p[at] | (unsigned)p[at + 1] << 8);
+    }
+    if (keep) q->ops.trace_hci(q->ops.context, false, 4, p, n);
+}
+
+static size_t tx_advance(struct qbt_tx_frame *, const uint8_t *, size_t,
+                         struct qbt_discovery_stats *);
+
+/* Reassemble only command bytes accepted by the UART. IBS and ACL payloads
+ * never enter the trace, including frames split across DMA submissions. */
+static void trace_tx(struct qbt *q, const uint8_t *p, size_t n,
+                     struct qbt_tx_frame before)
+{
+    if (!q->ops.trace_hci) return;
+    for (size_t i = 0; i < n; ++i) {
+        bool type = before.type == 1;
+        bool start = !before.type && p[i] == 1;
+        (void)tx_advance(&before, p + i, 1, NULL);
+        if (start) q->trace_command_length = 0;
+        else if (type && q->trace_command_length < sizeof(q->trace_command))
+            q->trace_command[q->trace_command_length++] = p[i];
+        if (type && !before.type && q->trace_command_length >= 3) {
+            const uint8_t *c = q->trace_command;
+            if (trace_command(c[0] | (unsigned)c[1] << 8))
+                q->ops.trace_hci(q->ops.context, true, 1, c, q->trace_command_length);
+            q->trace_command_length = 0;
+        }
+    }
+}
+
 static void discovery_event(struct qbt_discovery_stats *stats, const uint8_t *e, unsigned length)
 {
     if (length >= 6 && (e[0] == 0x0e || e[0] == 0x0f)) {
@@ -94,6 +137,7 @@ static size_t tx_advance(struct qbt_tx_frame *f, const uint8_t *p, size_t n,
 }
 static void event(struct qbt *q) {
     const uint8_t *e = q->event; unsigned n = q->event_length;
+    trace_event(q, e, n);
     if (n >= 3 && e[0] == 0x10) { q->stats.hardware_errors++; q->stats.last_hardware_error = e[2]; }
     /* The speed change completes after the switch, at the new rate. */
     if (n >= 5 && e[0] == 0x0e && e[3] == 0x48 && e[4] == 0xfc) q->speed_reply = true;
@@ -228,6 +272,7 @@ void qbt_step(struct qbt *q) {
             n=tx_advance(&preview,p,n,NULL);
             if(!n){q->info.error=-EPROTO;q->info.state=3;q->service=false;return;}
             size_t used = uart_write(q, t, p, n); if (used > n) used = n;
+            if (used) trace_tx(q, p, used, q->tx_frame);
             if(used)(void)tx_advance(&q->tx_frame,p,used,cmd?NULL:&q->stats.discovery);
             q->stats.tx_bytes += used;
             if (cmd) { q->command_offset += (unsigned)used; if (q->command_offset == q->command_length) q->command_offset = q->command_length = 0; }
