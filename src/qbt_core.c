@@ -53,7 +53,7 @@ static int discovery_command(unsigned opcode)
 static bool trace_command(unsigned opcode)
 {
     return discovery_command(opcode) >= 0 || opcode == 0x0402 ||
-        opcode == 0x0c01 || opcode == 0x0c03 || opcode == 0x0c45;
+        opcode == 0x0c01 || opcode == 0x0c03 || opcode == 0x0c45 || opcode == 0x2001;
 }
 
 static void trace_event(struct qbt *q, const uint8_t *p, unsigned n)
