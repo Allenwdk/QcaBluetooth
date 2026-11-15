@@ -39,6 +39,18 @@ firmware. Pairing, key storage, BLE and audio profiles run in `bluetoothd`.
 
 `kern.qbt_power_on` is a read because BlueTool's sandbox denies sysctl writes.
 
+The optional `qbt_platform.trace_hci` callback records discovery commands after
+the UART accepts their complete frame, plus controller status, Inquiry Complete,
+Inquiry Result and Remote Name events. Frames retain their original bytes.
+ACL, audio, pairing keys and unrelated vendor payloads are excluded.
+The callback runs on the protocol executor and must not block it.
+
+On sheng, `log-bluetooth=3` enables a bounded trace in the persistent boot log.
+`[bluetooth hci]` rows contain sequence numbers, monotonic nanoseconds, direction,
+H4 type and hexadecimal bytes. `TX_UART` means UART acceptance; controller
+acknowledgement is a separate `RX_CONTROLLER` event. `missed` and `dropped`
+report trace losses. Read the userdata tail from Recovery after the test.
+
 ## Checks
 
 ```sh
