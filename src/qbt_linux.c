@@ -86,6 +86,15 @@ static int set_speed(struct qbt *q,uint32_t speed,uint8_t baud) {
     if(!e)q->info.baud=speed;return e;
 }
 int qbt_boot(struct qbt *q,uint32_t speed,const uint8_t address[6]) {
+    return qbt_boot_controller(q,QBT_CONTROLLER_WCN7850,speed,address);
+}
+int qbt_boot_controller(struct qbt *q,enum qbt_controller controller,uint32_t speed,const uint8_t address[6]) {
+    enum qca_btsoc_type soc_type;
+    switch(controller) {
+    case QBT_CONTROLLER_WCN7850: soc_type=QCA_WCN7850;break;
+    case QBT_CONTROLLER_WCN6750: soc_type=QCA_WCN6750;break;
+    default:return -EINVAL;
+    }
     if(!address || !(address[0]|address[1]|address[2]|address[3]|address[4]|address[5]) || (address[0]&1))return -EINVAL;
     uint8_t baud;
     switch(speed) {case 115200:baud=QCA_BAUDRATE_115200;break;case 3000000:baud=QCA_BAUDRATE_3000000;break;
@@ -95,12 +104,12 @@ int qbt_boot(struct qbt *q,uint32_t speed,const uint8_t address[6]) {
     struct qbt_platform platform=q->ops;struct qbt_stats stats=q->stats;
     memset(q,0,sizeof(*q));q->ops=platform;q->stats=stats;q->stats.tlv_sent=q->stats.tlv_acks=0;q->clock_on=true;q->info.baud=115200;q->info.state=1;
     struct hci_dev h={.q=q,.dev={.q=q}};struct qca_btsoc_version version;
-    int e=qca_read_soc_version(&h,&version,QCA_WCN7850);
+    int e=qca_read_soc_version(&h,&version,soc_type);
     if(!e) {
         q->info.product=version.product_id;q->info.soc=version.soc_id;q->info.rom=version.rom_ver;q->info.patch=version.patch_ver;
         if(speed!=115200)e=set_speed(q,speed,baud);
     }
-    if(!e)e=qca_uart_setup(&h,baud,QCA_WCN7850,version,NULL,NULL);
+    if(!e)e=qca_uart_setup(&h,baud,soc_type,version,NULL,NULL);
     if(!e) {
         q->ibs=true;q->tx_state=QBT_ASLEEP;q->rx_awake=false;
         bdaddr_t local;for(unsigned i=0;i<6;i++)local.b[i]=address[5-i];e=qca_set_bdaddr(&h,&local);

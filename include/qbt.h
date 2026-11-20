@@ -81,6 +81,11 @@ void qbt_rx_wake(struct qbt *);
 void qbt_fail(struct qbt *, int error);
 /* address uses display/network order; the Linux adapter converts to bdaddr_t. */
 int qbt_boot(struct qbt *, uint32_t baud, const uint8_t address[6]);
+enum qbt_controller {
+    QBT_CONTROLLER_WCN7850,
+    QBT_CONTROLLER_WCN6750,
+};
+int qbt_boot_controller(struct qbt *, enum qbt_controller, uint32_t baud, const uint8_t address[6]);
 int qbt_shutdown(struct qbt *);
 void qbt_get_info(const struct qbt *, struct qbt_info *);
 void qbt_get_stats(const struct qbt *, struct qbt_stats *);
