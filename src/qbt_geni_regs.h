@@ -39,6 +39,8 @@
 #define G_S_IRQ_EN 0x644u
 #define G_S_CLEAR 0x648u
 #define G_TX_FIFO_STATUS 0x800u
+#define G_TX_FIFO_WC 0x0fffffffu
+#define G_TX_CTS_MASK (1u<<1)
 #define G_RX_WM 0x810u
 #define G_RX_RFR_WM 0x814u
 #define G_TX_PTR_L 0xc30u

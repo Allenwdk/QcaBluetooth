@@ -161,7 +161,7 @@ bool qbt_geni_service(struct qbt_geni *g) {
 bool qbt_geni_drained(struct qbt_geni *g) {
     if(g->tx_busy)return false;
     /* M_GP_LENGTH keeps the finished command's byte count; it is not a pending count. */
-    return !(rd(g,G_STATUS)&G_M_ACTIVE) && !rd(g,G_TX_FIFO_STATUS);
+    return !(rd(g,G_STATUS)&G_M_ACTIVE) && !(rd(g,G_TX_FIFO_STATUS)&G_TX_FIFO_WC);
 }
 size_t qbt_geni_write(struct qbt_geni *g,const uint8_t *bytes,size_t n) {
     if(g->state!=QBT_GENI_RUN || !bytes || !n || !qbt_geni_drained(g))return 0;
@@ -173,9 +173,14 @@ size_t qbt_geni_write(struct qbt_geni *g,const uint8_t *bytes,size_t n) {
     wr(g,G_TX_PTR_L,(uint32_t)g->tx.address);wr(g,G_TX_PTR_H,(uint32_t)(g->tx.address>>32));
     wr(g,G_TX_ATTR,1);barrier(g);wr(g,G_TX_DMA_LEN,(uint32_t)n);barrier(g);return n;
 }
+void qbt_geni_set_tx_cts(struct qbt_geni *g,bool enabled) {
+    uint32_t cfg=rd(g,G_TX_CFG);
+    wr(g,G_TX_CFG,enabled?(cfg&~G_TX_CTS_MASK):(cfg|G_TX_CTS_MASK));
+    barrier(g);
+}
 void qbt_geni_set_flow(struct qbt_geni *g,bool enabled) {
-    g->flow=enabled;uint32_t cfg=rd(g,G_TX_CFG);
-    wr(g,G_TX_CFG,enabled?(cfg&~2u):(cfg|2u));
+    g->flow=enabled;
+    qbt_geni_set_tx_cts(g,enabled);
     rfr(g,g->rx_busy && g->state==QBT_GENI_RUN);barrier(g);
 }
 int qbt_geni_quiesce(struct qbt_geni *g) {

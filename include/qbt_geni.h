@@ -56,6 +56,8 @@ void qbt_geni_irq(struct qbt_geni *);
 bool qbt_geni_service(struct qbt_geni *);
 size_t qbt_geni_write(struct qbt_geni *, const uint8_t *, size_t);
 bool qbt_geni_drained(struct qbt_geni *);
+/* Change TX CTS sampling independently of the RX-ready handshake. */
+void qbt_geni_set_tx_cts(struct qbt_geni *, bool enabled);
 void qbt_geni_set_flow(struct qbt_geni *, bool);
 /* Cancel RX only after TX drains, then finish from IRQ or timed service turns.
  * Clock gating is allowed only at STOPPED with an external RX wake armed. */

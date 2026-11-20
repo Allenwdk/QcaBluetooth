@@ -81,11 +81,22 @@ static void test_tx(void) {
     f.regs[G_TX_IRQ/4]|=G_DONE;irq(&f);qbt_geni_service(&f.g);
     assert(!f.device_tx && !qbt_geni_drained(&f.g));assert(!qbt_geni_write(&f.g,b,sizeof(b)));
     f.regs[G_STATUS/4]&=~G_M_ACTIVE;f.regs[G_M_IRQ/4]|=G_DONE;
-    irq(&f);qbt_geni_service(&f.g);assert(qbt_geni_drained(&f.g));
+    irq(&f);qbt_geni_service(&f.g);
+    f.regs[G_TX_FIFO_STATUS/4]=0x10000001;
+    assert(!qbt_geni_drained(&f.g));
+    f.regs[G_TX_FIFO_STATUS/4]=0x10000000;
+    assert(qbt_geni_drained(&f.g));
     assert(f.g.stats.tx_bytes==sizeof(b) && f.g.stats.tx_dma==1);
     /* Hardware retains M_GP_LENGTH after completion; the next command still starts. */
     assert(f.regs[0x910/4]==sizeof(b));assert(qbt_geni_write(&f.g,b,sizeof(b))==sizeof(b));
     f.regs[G_TX_IRQ/4]|=G_DONE;f.regs[G_STATUS/4]&=~G_M_ACTIVE;irq(&f);qbt_geni_service(&f.g);
+    const uint32_t ready=f.regs[G_MANUAL_RFR/4];
+    qbt_geni_set_tx_cts(&f.g,false);
+    assert(f.regs[G_TX_CFG/4]&G_TX_CTS_MASK);
+    assert(f.g.flow && f.regs[G_MANUAL_RFR/4]==ready);
+    qbt_geni_set_tx_cts(&f.g,true);
+    assert(!(f.regs[G_TX_CFG/4]&G_TX_CTS_MASK));
+    assert(f.g.flow && f.regs[G_MANUAL_RFR/4]==ready);
     qbt_geni_set_flow(&f.g,false);assert(f.regs[G_TX_CFG/4]&2);assert(f.regs[G_MANUAL_RFR/4]==G_RFR_OFF);
     qbt_geni_set_flow(&f.g,true);assert(!(f.regs[G_TX_CFG/4]&2));assert(!f.regs[G_MANUAL_RFR/4]);
 }
