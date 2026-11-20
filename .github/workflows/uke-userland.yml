@@ -1,0 +1,29 @@
+name: Build Bluetooth userland helpers
+
+on:
+  push:
+    branches: [feat/uke-wcn6750]
+    paths: ['.github/workflows/uke-userland.yml', 'userland/**', 'tools/**']
+
+permissions:
+  contents: read
+
+jobs:
+  helpers:
+    runs-on: macos-26
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          python3 tools/build-bluetool.py --output out/bluetool
+          python3 tools/build-type0.py --output out/type0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qca-bluetooth-helpers
+          path: |
+            out/bluetool/BlueTool
+            out/bluetool/com.apple.BlueTool.plist
+            out/bluetool/report.json
+            out/type0/QcaBTType0.dylib
+            out/type0/type0-report.json
+          if-no-files-found: error
