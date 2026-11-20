@@ -80,5 +80,7 @@
 #define G_LINE_ERRORS ((3u<<9)|(3u<<11)|(3u<<24))
 #define G_IRQ_MASK 0x0fu
 #define G_RFR_OFF 0x80000002u
+#define G_RX_SKIP_BREAK (1u<<6)
+#define G_RX_RFR_OPEN (1u<<7)
 #define G_STOP_TIMEOUT_NS 10000000ULL
 #endif

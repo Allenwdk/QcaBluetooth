@@ -80,7 +80,8 @@ int qbt_geni_start(struct qbt_geni *g) {
     wr(g,G_S_IRQ_EN,G_CMD_ERRORS|G_LINE_ERRORS|(1u<<4)|(1u<<5));
     g->state=QBT_GENI_RUN;
     /* Linux starts the secondary sequencer with UART_PARAM_RFR_OPEN. */
-    wr(g,G_S_CMD,(1u<<27)|(1u<<7));arm_rx(g);wr(g,G_IRQ_EN,G_IRQ_MASK);barrier(g);
+    const uint32_t line_flags=G_RX_RFR_OPEN|(g->skip_rx_break?G_RX_SKIP_BREAK:0);
+    wr(g,G_S_CMD,(1u<<27)|line_flags);arm_rx(g);wr(g,G_IRQ_EN,G_IRQ_MASK);barrier(g);
     __atomic_store_n(&g->irq_pending,false,__ATOMIC_RELEASE);
     g->ops.irq_mask(g->ops.context,false);return 0;
 }

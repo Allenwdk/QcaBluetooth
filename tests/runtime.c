@@ -40,7 +40,17 @@ static void controller(struct fixture *f,const uint8_t *p,unsigned n){
     }
     if(op==0xfc00){
         response[1]=param[0];length=2;
-        if(param[0]==0x19){length=15;response[2]=0;put32(response+3,0x21);put16(response+7,0x1234);put16(response+9,f->wcn6750?0x0102:0x0200);put32(response+11,f->wcn6750?0x40010102:0x400c0200);}
+        if(param[0]==0x19){
+            length=15;
+            if(f->wcn6750) {
+                /* Actual 115200-baud ROM reply from the Uke OEM GENI UART. */
+                const uint8_t uke_version[]={0,0x19,0x0c,0x15,0,0,0,0x39,0x56,0x02,0x01,0x20,0x01,0x14,0x40};
+                memcpy(response,uke_version,sizeof(uke_version));
+            } else {
+                put32(response+3,0x21);put16(response+7,0x1234);
+                put16(response+9,0x0200);put32(response+11,0x400c0200);
+            }
+        }
         else if(param[0]==0x28){assert(f->wcn6750);f->patch_configured=true;response[1]=0;}
         else if(param[0]==0x23){length=5;if(f->board_specific){response[3]=0x12;response[4]=0x34;}}
         else if(param[0]==0x20){const char *label="WCN7850-fixture";length=strlen(label)+3;response[2]=strlen(label);memcpy(response+3,label,strlen(label));}
@@ -186,6 +196,7 @@ static void initialization_wcn6750(void) {
         assert(!qbt_boot_controller(f->q,QBT_CONTROLLER_WCN6750,3000000,address));
         struct qbt_info info;qbt_get_info(f->q,&info);
         assert(info.state==2&&info.baud==3000000&&info.rom==0x0102);
+        assert(info.product==0x15&&info.soc==0x40140120&&info.patch==0x5639);
         assert(f->patch_configured&&f->firmware_gets==(mbn?2u:3u)&&f->nvm_edited&&f->address_written);
         assert(!qbt_shutdown(f->q));destroy(f);free(f);
     }

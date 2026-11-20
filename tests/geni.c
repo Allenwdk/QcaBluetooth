@@ -100,6 +100,19 @@ static void test_tx(void) {
     qbt_geni_set_flow(&f.g,false);assert(f.regs[G_TX_CFG/4]&2);assert(f.regs[G_MANUAL_RFR/4]==G_RFR_OFF);
     qbt_geni_set_flow(&f.g,true);assert(!(f.regs[G_TX_CFG/4]&2));assert(!f.regs[G_MANUAL_RFR/4]);
 }
+static void test_rx_break_mode(void) {
+    struct fixture f;prepare(&f);
+    assert((f.regs[G_S_CMD/4] & (G_RX_RFR_OPEN|G_RX_SKIP_BREAK))==G_RX_RFR_OPEN);
+    assert(qbt_geni_quiesce(&f.g)==-EINPROGRESS);
+    f.regs[G_STATUS/4]&=~G_S_ACTIVE;
+    f.regs[G_RX_LEN_IN/4]=0;f.regs[G_RX_IRQ/4]|=G_DONE;
+    irq(&f);qbt_geni_service(&f.g);
+    assert(f.g.state==QBT_GENI_STOPPED);
+    f.g.skip_rx_break=true;
+    assert(!qbt_geni_resume(&f.g));
+    assert((f.regs[G_S_CMD/4] & (G_RX_RFR_OPEN|G_RX_SKIP_BREAK))==
+           (G_RX_RFR_OPEN|G_RX_SKIP_BREAK));
+}
 static void test_rx(void) {
     struct fixture f;prepare(&f);f.blocked=true;
     uint8_t payload[QBT_GENI_RX_SIZE];
@@ -143,7 +156,7 @@ static void test_faults(void) {
     irq(&f);qbt_geni_service(&f.g);assert(f.g.error==-EOVERFLOW);
 }
 int main(void) {
-    test_tx();test_rx();test_faults();
+    test_tx();test_rx_break_mode();test_rx();test_faults();
     puts("PASS: GENI DMA ownership, 64-bit addresses, wire drain, bounded IRQ, RX backpressure, clock-rate validation, quiesce/resume and DMA faults");
     return 0;
 }

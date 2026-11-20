@@ -44,6 +44,8 @@ struct qbt_geni {
     uint64_t stop_deadline;
     int error;
     bool tx_busy, rx_busy, flow, irq_pending;
+    /* Optional UART microcode flag for the next RX start, set while stopped. */
+    bool skip_rx_break;
 };
 /* Engine must be idle, supplied with its UART microcode and functional clocks. */
 int qbt_geni_prepare(struct qbt_geni *, const struct qbt_geni_ops *,
