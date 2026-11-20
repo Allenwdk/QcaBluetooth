@@ -12,6 +12,7 @@ struct fixture {
     uint8_t patch[1001], nvm[603], downloaded[2048]; size_t downloaded_length, download_size;
     bool progress_acks, progress_loss, speed_reply; unsigned progress_sent; uint64_t progress_delay, speed_settle, speed_command_at;
     unsigned download_mode, failed_opcode; bool missing_replies, missing_wake, board_specific;
+    bool wcn6750, mbn_present, patch_configured;
     bool nvm_edited, address_written, wake_armed, hardware_fault, clock_fault, wake_in_stop, uart_stopped;
     unsigned trace_tx, trace_rx; uint8_t trace_type, trace_bytes[258]; size_t trace_length;
 };
@@ -39,18 +40,24 @@ static void controller(struct fixture *f,const uint8_t *p,unsigned n){
     }
     if(op==0xfc00){
         response[1]=param[0];length=2;
-        if(param[0]==0x19){length=15;response[2]=0;put32(response+3,0x21);put16(response+7,0x1234);put16(response+9,0x0200);put32(response+11,0x400c0200);}
+        if(param[0]==0x19){length=15;response[2]=0;put32(response+3,0x21);put16(response+7,0x1234);put16(response+9,f->wcn6750?0x0102:0x0200);put32(response+11,f->wcn6750?0x40010102:0x400c0200);}
+        else if(param[0]==0x28){assert(f->wcn6750);f->patch_configured=true;response[1]=0;}
         else if(param[0]==0x23){length=5;if(f->board_specific){response[3]=0x12;response[4]=0x34;}}
         else if(param[0]==0x20){const char *label="WCN7850-fixture";length=strlen(label)+3;response[2]=strlen(label);memcpy(response+3,label,strlen(label));}
         else if(param[0]==0x1e){
             unsigned bytes=param[1];assert(bytes==n-6&&bytes<=243);
             /* A segment that arrives before the controller finished its speed change is lost. */
             if(f->speed_settle)assert(f->now>=f->speed_command_at+f->speed_settle);
-            if(!f->downloaded_length){assert(bytes>=28);f->download_size=(le32(param+2)>>8)+4;f->download_mode=param[2]==1?param[16]:0;}
+            if(!f->downloaded_length){assert(bytes>=28);if(param[2]==0x7f) {
+                    assert(f->wcn6750 && f->mbn_present);
+                    f->download_size=sizeof(f->patch);f->download_mode=3;
+                } else {
+                    f->download_size=(le32(param+2)>>8)+4;f->download_mode=param[2]==1?param[16]:0;
+                }}
             assert(f->downloaded_length+bytes<=sizeof(f->downloaded));memcpy(f->downloaded+f->downloaded_length,param+2,bytes);f->downloaded_length+=bytes;
             if(f->downloaded_length==f->download_size){
                 if(f->downloaded[0]==2){
-                    const uint8_t *tag=f->downloaded+4;assert(le16(tag)==17);assert((tag[12]&0x80)&&tag[13]==17);
+                    const uint8_t *tag=f->downloaded+4;assert(le16(tag)==17);assert((tag[12]&0x80)&&tag[13]==(f->wcn6750?14:17));
                     tag+=15;assert(le16(tag)==27&&(tag[12]&1));f->nvm_edited=true;
                 }f->downloaded_length=0;
             } else if(f->download_mode==1||f->download_mode==3){
@@ -131,6 +138,16 @@ static void wait_until(void *c,uint64_t deadline){
 }
 static int firmware(void *c,const char *name,const uint8_t **p,size_t *n){
     struct fixture *f=c;f->firmware_gets++;
+    if(f->wcn6750) {
+        if(!strcmp(name,"qca/msbtfw12.mbn")) {
+            if(!f->mbn_present)return -ENOENT;
+            *p=f->patch;*n=sizeof(f->patch);return 0;
+        }
+        if(!strcmp(name,"qca/msbtfw12.tlv")){
+            assert(!f->mbn_present);*p=f->patch;*n=sizeof(f->patch);return 0;
+        }
+        assert(!strcmp(name,"qca/msnv12.bin"));*p=f->nvm;*n=sizeof(f->nvm);return 0;
+    }
     if(!strcmp(name,"qca/hmtbtfw20.tlv")){*p=f->patch;*n=sizeof(f->patch);return 0;}
     if(!strcmp(name,"qca/hmtnv20.bin")){*p=f->nvm;*n=sizeof(f->nvm);return 0;}
     assert(!strcmp(name,"qca/hmtnv20.b1234"));return -ENOENT;
@@ -153,6 +170,23 @@ static void initialization(void){
     for(unsigned mode=0;mode<=3;mode+=3){struct fixture *f=calloc(1,sizeof(*f));make(f,mode);f->board_specific=true;
         assert(!boot(f));struct qbt_info info;qbt_get_info(f->q,&info);assert(info.state==2&&info.baud==3200000&&info.rom==0x0200&&!strcmp(info.firmware,"WCN7850-fixture"));
         assert(f->firmware_gets==3&&f->nvm_edited&&f->address_written&&f->speed==3200000&&f->flow_off==1&&f->flow_on==1);
+        assert(!qbt_shutdown(f->q));destroy(f);free(f);
+    }
+}
+static void initialization_wcn6750(void) {
+    const uint8_t address[]={2,2,3,4,5,7};
+    for(unsigned mbn=0;mbn<2;mbn++) {
+        struct fixture *f=calloc(1,sizeof(*f));make(f,0);
+        f->wcn6750=true;f->mbn_present=mbn;
+        if(mbn)memcpy(f->patch,"\177ELF",4);
+        assert(qbt_boot_controller(f->q,(enum qbt_controller)2,3000000,address)==-EINVAL);
+        f->missing_replies=true;
+        assert(qbt_boot_controller(f->q,QBT_CONTROLLER_WCN6750,3000000,address)==-ETIMEDOUT);
+        f->missing_replies=false;
+        assert(!qbt_boot_controller(f->q,QBT_CONTROLLER_WCN6750,3000000,address));
+        struct qbt_info info;qbt_get_info(f->q,&info);
+        assert(info.state==2&&info.baud==3000000&&info.rom==0x0102);
+        assert(f->patch_configured&&f->firmware_gets==(mbn?2u:3u)&&f->nvm_edited&&f->address_written);
         assert(!qbt_shutdown(f->q));destroy(f);free(f);
     }
 }
@@ -355,4 +389,4 @@ static void refused_write(void){
     qbt_get_stats(f->q,&stats);assert(stats.tx_refused==5);
     destroy(f);free(f);
 }
-int main(void){initialization();failures();progress_reports();speed_settle();receive_pressure();discovery();discovery_trace();sleep_and_wake();lost_wake();clock_failure();tx_ibs_boundaries();wake_during_clock_stop();refused_write();puts("PASS: original Linux WCN7850 setup, firmware/BID fallback, NVM edits, H4 fragmentation/backpressure, status failure, true timeout, partial DMA TX, IBS packet boundaries, clock/wake recovery, terminal clock faults, wake during a clock stop, refused writes and bounded discovery trace callbacks");}
+int main(void){initialization();initialization_wcn6750();failures();progress_reports();speed_settle();receive_pressure();discovery();discovery_trace();sleep_and_wake();lost_wake();clock_failure();tx_ibs_boundaries();wake_during_clock_stop();refused_write();puts("PASS: original Linux WCN7850/WCN6750 setup, firmware/BID fallback, NVM edits, H4 fragmentation/backpressure, status failure, true timeout, partial DMA TX, IBS packet boundaries, clock/wake recovery, terminal clock faults, wake during a clock stop, refused writes and bounded discovery trace callbacks");}
